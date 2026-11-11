@@ -44,6 +44,7 @@
   --strong: #002142;
   --brand: #0066cc;
   --brand-hover: #00478f;
+  --button-secondary-border: #637f9b;
   --soft: #e2f0f4;
   --accent: #c2e0ff;
   --success: #e5f0e9;
@@ -294,8 +295,34 @@ a.today-card { cursor: pointer; }
 
 .actions { flex: 0 0 auto; display: flex; flex-direction: column; gap: var(--space-8); padding: 12px 24px 12px; background: var(--surface); }
 .actions--empty { background: var(--canvas); }
-.ontario-button.button { min-height: 54px; min-width: 0; display: grid; place-items: center; width: 100%; margin: 0; padding-inline: 16px; }
+.ontario-button.button {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 54px;
+  margin: 0;
+  padding: 10px 16px;
+  border-radius: var(--radius-12);
+  font-size: 1rem;
+  line-height: 1.375;
+}
+
 .ontario-button.button--compact { min-height: 44px; padding-block: 6px; }
+.ontario-button--primary.button:not(:focus, :active) { box-shadow: 0 1px 2px rgb(0 33 66 / 16%); }
+
+.ontario-button--secondary.button {
+  border: 1px solid var(--button-secondary-border);
+  color: var(--brand-hover);
+  background-color: var(--soft);
+}
+
+.ontario-button--secondary.button:is(:hover, :focus) {
+  border-color: var(--brand-hover);
+  background-color: var(--inverse-muted);
+}
+
+.ontario-button--secondary.button:active { background-color: var(--accent); }
 .back:active, .choice:active { filter: brightness(.94); }
 .home-indicator { display: block; height: 4px; width: 108px; margin-inline: auto; border-radius: 999px; background: var(--strong); }
 
