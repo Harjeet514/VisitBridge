@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en-CA">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#102f35">
+  <meta name="description" content="An interactive VisitBridge home nursing visit prototype.">
+  <title>VisitBridge</title>
+  <link rel="icon" href="./assets/brand.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <main class="presentation" aria-label="VisitBridge prototype">
+    <div class="device-wrap">
+      <div class="device" aria-label="iPhone frame">
+        <span class="hardware-key hardware-key--volume-up" aria-hidden="true"></span>
+        <span class="hardware-key hardware-key--volume-down" aria-hidden="true"></span>
+        <span class="hardware-key hardware-key--power" aria-hidden="true"></span>
+        <div class="device-screen">
+          <div class="island" aria-hidden="true"></div>
+          <div id="app"></div>
+        </div>
+      </div>
+    </div>
+    <button class="reset-demo" type="button" id="restart-demo">Restart demo</button>
+  </main>
+</body>
+</html>
