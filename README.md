@@ -21,6 +21,12 @@ The app uses native HTML, CSS, and JavaScript modules. It runs without a build s
 
 The patient, visit, and care data are fictional. Edits stay in the current browser session.
 
+## Ontario Design System
+
+VisitBridge uses Ontario’s colour palette and typography, with published button, field, hint, and error styles from `@ongov/ontario-design-system-complete-styles` 9.2.2. The styles are bundled in `vendor/ontario/` and fitted to the mobile prototype. The web app uses Ontario’s Raleway Modified and Open Sans. The companion Figma file uses standard Raleway and Open Sans with editable VisitBridge components.
+
+[Ontario Design System documentation](https://designsystem.ontario.ca/)
+
 ## Project structure
 
 - `index.html` sets up the iPhone frame.
@@ -32,4 +38,4 @@ The patient, visit, and care data are fictional. Edits stay in the current brows
 ## Design and asset credits
 
 - Published reference X-rays by Latip et al., *Cureus* (2025), [Figure 1](https://pmc.ncbi.nlm.nih.gov/articles/PMC11847165/figure/FIG1/) and [Figure 3](https://pmc.ncbi.nlm.nih.gov/articles/PMC11847165/figure/FIG3/), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
-- DM Sans and Plus Jakarta Sans are bundled under the SIL Open Font License. See the license files in `assets/`.
+- The Ontario Design System styles, Raleway Modified, and Open Sans ship with their license files in `vendor/ontario/`.

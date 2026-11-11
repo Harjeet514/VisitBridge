@@ -3,7 +3,7 @@ import { splash } from './ui.js';
 
 const app = document.querySelector('#app');
 const storageKey = 'visitbridge-demo-v1';
-const requiredMedicationFields = ['name', 'dose', 'route', 'time'];
+const requiredMedicationFields = Object.keys(medicationFields).filter(key => medicationFields[key].error);
 const homeRoutes = { completed: 'visits-completed', followup: 'visits-followup', rescheduled: 'visits-rescheduled' };
 
 function initialState() {
@@ -18,6 +18,8 @@ function initialState() {
     medication: {
       name: '', dose: '', route: '', time: '11 Nov 2026 · 10:22 AM', reason: 'Right leg pain · 6/10 at rest',
     },
+    medicationErrors: [],
+    assessmentError: false,
     savedMedication: null,
     response: {
       patient: 'Robert reports pain 3/10 at rest.',
@@ -102,10 +104,22 @@ function edit(key) {
   navigate('editor');
 }
 
+function showInlineError(input, invalid) {
+  const errorId = `${input.id}-error`;
+  const error = document.getElementById(errorId);
+  if (error) error.hidden = !invalid;
+  const descriptions = (input.getAttribute('aria-describedby') || '').split(' ').filter(id => id && id !== errorId);
+  if (invalid) descriptions.push(errorId);
+  if (descriptions.length) input.setAttribute('aria-describedby', descriptions.join(' '));
+  else input.removeAttribute('aria-describedby');
+  if (invalid) input.setAttribute('aria-invalid', 'true');
+  else input.removeAttribute('aria-invalid');
+  input.classList.toggle('ontario-input__error', invalid);
+}
+
 function setDraft(value) {
   state.draft = value;
-  const error = document.querySelector('#draft-error');
-  if (error) error.hidden = true;
+  showInlineError(document.querySelector('#entry-draft'), false);
   saveState();
 }
 
@@ -126,7 +140,7 @@ function applyDraft() {
   const input = document.querySelector('#entry-draft');
   const draft = input.value.trim();
   if (!draft) {
-    document.querySelector('#draft-error').hidden = false;
+    showInlineError(input, true);
     input.focus();
     return;
   }
@@ -136,23 +150,35 @@ function applyDraft() {
     medication.route = '';
   }
   medication[editing] = draft;
+  clearResolvedMedicationErrors();
   navigate('medication');
 }
 
+function clearResolvedMedicationErrors() {
+  state.medicationErrors = state.medicationErrors.filter(key => !state.medication[key].trim());
+}
+
 function reviewMedication() {
-  const missing = requiredMedicationFields.find(key => !state.medication[key].trim());
-  if (missing) {
-    const error = document.querySelector('#medication-error');
-    error.hidden = false;
-    error.scrollIntoView({ block: 'nearest' });
-    app.querySelector(`[data-action="edit:${missing}"]`).focus({ preventScroll: true });
+  state.medicationErrors = requiredMedicationFields.filter(key => !state.medication[key].trim());
+  if (state.medicationErrors.length) {
+    saveState();
+    render();
+    document.querySelector('#medication-error-summary').focus();
     return;
   }
   navigate('medication-review');
 }
 
 function saveAssessment() {
-  if (!document.querySelector('#field-assessment-pain').reportValidity()) return;
+  const pain = document.querySelector('#field-assessment-pain');
+  if (!pain.validity.valid) {
+    state.assessmentError = true;
+    saveState();
+    render({ preserveScroll: true });
+    document.querySelector('#field-assessment-pain').focus();
+    return;
+  }
+  state.assessmentError = false;
   if (/^Right leg pain · \d+\/10 at rest$/.test(state.medication.reason)) {
     state.medication.reason = `Right leg pain · ${state.assessment.pain}/10 at rest`;
   }
@@ -169,6 +195,7 @@ const commands = {
   'save-assessment': saveAssessment,
   'use-order': () => {
     Object.assign(state.medication, { name: 'Acetaminophen', dose: '500 mg', route: 'By mouth (oral)' });
+    clearResolvedMedicationErrors();
     saveState();
     render({ preserveScroll: true });
     app.querySelector('[data-action="use-order"]').focus({ preventScroll: true });
@@ -214,6 +241,7 @@ app.addEventListener('click', event => {
   if (verb === 'go') navigate(value);
   else if (verb === 'edit') edit(value);
   else if (verb === 'key') pressKey(value);
+  else if (verb === 'focus-field') document.getElementById(`field-medication-${value}`)?.focus();
   else if (Object.hasOwn(commands, verb)) commands[verb]();
 });
 
@@ -226,6 +254,10 @@ app.addEventListener('input', event => {
   if (!target.dataset.field) return;
   const [section, key] = target.dataset.field.split('.');
   state[section][key] = target.value;
+  if (section === 'assessment' && key === 'pain' && state.assessmentError && target.validity.valid) {
+    state.assessmentError = false;
+    showInlineError(target, false);
+  }
   saveState();
 });
 

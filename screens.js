@@ -1,6 +1,6 @@
 import {
   action, avatar, badge, button, card, choice, detail, editField, escapeHtml, field,
-  go, h, intro, metricPair, note, p, patient, screen, svg,
+  go, h, inlineError, intro, metricPair, note, p, patient, screen, svg,
 } from './ui.js';
 
 const patientId = '79 years · Visit VB-2076';
@@ -12,11 +12,11 @@ const nav = (route) => `go:${route}`;
 const wrap = (html) => `<div class="inset">${html}</div>`;
 
 export const medicationFields = {
-  name: { label: 'Medication name', placeholder: 'Enter medication name', hint: 'Tap to type or change the name.', guidance: 'Enter the name as written on the medication order.' },
-  dose: { label: 'Dose given', placeholder: 'Enter dose', hint: 'Amount and unit', guidance: 'Enter the amount actually given and its unit, such as mg or mL.' },
-  route: { label: 'Route', placeholder: 'Enter route', hint: 'How it was given', guidance: 'Enter how the medication was given.' },
-  time: { label: 'Given at', placeholder: 'Enter date and time', hint: 'Administration date and time', guidance: 'Enter the date and time the medication was given.' },
-  reason: { label: 'Reason', placeholder: 'Enter reason', hint: 'Document the reason for giving it.', guidance: 'Enter why the medication was given.' },
+  name: { label: 'Medication name', placeholder: 'Enter medication name', hint: 'Tap to type or change the name.', guidance: 'Enter the name as written on the medication order.', error: 'Enter the medication name.' },
+  dose: { label: 'Dose given', placeholder: 'Enter dose', hint: 'Amount and unit', guidance: 'Enter the amount actually given and its unit, such as mg or mL.', error: 'Enter the dose given.' },
+  route: { label: 'Route', placeholder: 'Enter route', hint: 'How it was given', guidance: 'Enter how the medication was given.', error: 'Enter how the medication was given.' },
+  time: { label: 'Given at', placeholder: 'Enter date and time', hint: 'Administration date and time', guidance: 'Enter the date and time the medication was given.', error: 'Enter the date and time given.' },
+  reason: { label: 'Reason', optional: true, placeholder: 'Enter reason', hint: 'Document the reason for giving it.', guidance: 'Enter why the medication was given.' },
 };
 
 const schedule = [
@@ -304,7 +304,7 @@ function assessment(state) {
     body: join(
       patient('Right tibial plateau fracture', 'Assessment time · 11 Nov, 10:12 AM'),
       note('Previous visit · 10 Nov', 'Pain 4/10 at rest. Mild knee swelling. Dressing dry and intact.'),
-      field('Pain at rest', 'assessment.pain', entry.pain, 'Reported by Robert', { number: true }),
+      field('Pain at rest', 'assessment.pain', entry.pain, 'Reported by Robert', { number: true, error: state.assessmentError ? 'Enter a pain score from 0 to 10.' : '' }),
       field('Right knee swelling', 'assessment.swelling', entry.swelling, 'Observed today'),
       field('Dressing', 'assessment.dressing', entry.dressing, 'Observed today'),
       field('Patient report', 'assessment.note', entry.note, '', { multiline: true }),
@@ -335,13 +335,17 @@ function assessmentSaved(state) {
 }
 
 function recordMedication(state) {
-  const value = key => editField(key, medicationFields[key], state.medication[key]);
-  const errors = '<p id="medication-error" class="form-error" role="alert" hidden>Enter the medication name, dose, route and time to continue.</p>';
+  const errors = state.medicationErrors;
+  const value = key => editField(key, medicationFields[key], state.medication[key], errors.includes(key) ? medicationFields[key].error : '');
+  const errorSummary = errors.length ? `<section id="medication-error-summary" class="form-error-summary" role="alert" tabindex="-1" aria-labelledby="medication-error-title">
+    <h2 id="medication-error-title" class="h3">Check the medication details</h2>
+    <ul>${errors.map(key => `<li><a href="#field-medication-${key}" data-action="focus-field:${key}">${escapeHtml(medicationFields[key].error)}</a></li>`).join('')}</ul>
+  </section>` : '';
   return {
     title: 'Record medication', time: '10:24', back: 'assessment-saved',
     body: join(
       intro('Robert Hayes', `Visit VB-2076 · ${nurse}`),
-      errors,
+      errorSummary,
       card(join(value('name'), button(action('Use Acetaminophen order', 'use-order', 'secondary'), 'button--compact'))),
       `<section class="form-fields">${h('Administration details')}
         <div class="two-columns">${value('dose')}${value('route')}</div>
@@ -367,9 +371,9 @@ function editor(state) {
     body: join(
       intro(config.label, config.guidance),
       card(join(
-        '<label class="label" for="entry-draft">Your entry</label>',
-        `<input id="entry-draft" class="draft-input" type="text" inputmode="none" maxlength="180" value="${escapeHtml(state.draft)}" placeholder="Type below" autocomplete="off">`,
-        '<p id="draft-error" class="form-error" role="alert" hidden>Enter a value to continue.</p>',
+        '<label class="ontario-label" for="entry-draft">Your entry</label>',
+        inlineError('entry-draft', 'Enter a value.', { hidden: true, announce: true }),
+        `<input id="entry-draft" class="ontario-input draft-input" type="text" inputmode="none" maxlength="180" value="${escapeHtml(state.draft)}" placeholder="Type below" autocomplete="off">`,
         button(action('Clear entry', 'clear-entry', 'secondary'), 'button--compact'),
       )),
       keyboard(), p('Robert Hayes · Home visit VB-2076', 'caption'),

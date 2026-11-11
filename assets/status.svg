@@ -1,12 +1,12 @@
 <svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="64" height="15" viewBox="0 0 64 15" fill="none" xmlns="http://www.w3.org/2000/svg">
 <g id="Frame">
-<path id="Vector" d="M1 11H4V14H1V11ZM6 8H9V14H6V8ZM11 5H14V14H11V5ZM16 2H19V14H16V2Z" fill="#142F38"/>
-<path id="Vector_2" d="M24 5C29 1 36 1 41 5M27 8C30 6 34 6 38 8M31 11H34" stroke-width="1.7" stroke-linecap="round" stroke="#142F38"/>
-<path id="Vector_3" d="M48 3H59C60.1046 3 61 3.89543 61 5V10C61 11.1046 60.1046 12 59 12H48C46.8954 12 46 11.1046 46 10V5C46 3.89543 46.8954 3 48 3Z" stroke="#142F38"/>
-<path id="Vector_4" d="M57 5H49C48.4477 5 48 5.44772 48 6V9C48 9.55228 48.4477 10 49 10H57C57.5523 10 58 9.55228 58 9V6C58 5.44772 57.5523 5 57 5Z" fill="#142F38"/>
+<path id="Vector" d="M1 11H4V14H1V11ZM6 8H9V14H6V8ZM11 5H14V14H11V5ZM16 2H19V14H16V2Z" fill="#1A1A1A"/>
+<path id="Vector_2" d="M24 5C29 1 36 1 41 5M27 8C30 6 34 6 38 8M31 11H34" stroke-width="1.7" stroke-linecap="round" stroke="#1A1A1A"/>
+<path id="Vector_3" d="M48 3H59C60.1046 3 61 3.89543 61 5V10C61 11.1046 60.1046 12 59 12H48C46.8954 12 46 11.1046 46 10V5C46 3.89543 46.8954 3 48 3Z" stroke="#1A1A1A"/>
+<path id="Vector_4" d="M57 5H49C48.4477 5 48 5.44772 48 6V9C48 9.55228 48.4477 10 49 10H57C57.5523 10 58 9.55228 58 9V6C58 5.44772 57.5523 5 57 5Z" fill="#1A1A1A"/>
 <g id="Vector_5">
-<path d="M63 6V9Z" fill="#142F38"/>
-<path d="M63 6V9" stroke="#142F38"/>
+<path d="M63 6V9Z" fill="#1A1A1A"/>
+<path d="M63 6V9" stroke="#1A1A1A"/>
 </g>
 </g>
 </svg>

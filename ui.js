@@ -11,7 +11,7 @@ export const h = (value, style = 'h3') => `<h3 class="${style}">${escapeHtml(val
 export const svg = (name, className = '') => `<img class="${className}" src="./assets/${name}.svg" alt="" aria-hidden="true">`;
 
 export function button({ label, command, tone }, extraClass = '') {
-  return `<button type="button" class="button button--${tone} ${extraClass}" data-action="${escapeHtml(command)}">${escapeHtml(label)}</button>`;
+  return `<button type="button" class="ontario-button ontario-button--${tone} button ${extraClass}" data-action="${escapeHtml(command)}">${escapeHtml(label)}</button>`;
 }
 
 export function intro(title, description) {
@@ -57,25 +57,50 @@ export function metricPair(first, second) {
   ).join('')}</div>`;
 }
 
-export function field(label, key, value, hint = '', { multiline = false, number = false } = {}) {
-  const id = `field-${key.replaceAll('.', '-')}`;
-  const common = `id="${id}" name="${id}" data-field="${key}" aria-describedby="${id}-hint"`;
-  let input;
-  if (multiline) {
-    input = `<textarea ${common} rows="2" maxlength="400">${escapeHtml(value)}</textarea>`;
-  } else if (number) {
-    input = `<div class="score-input"><input ${common} type="number" inputmode="numeric" min="0" max="10" required value="${escapeHtml(value)}"><span aria-hidden="true">/ 10</span></div>`;
-  } else {
-    input = `<input ${common} type="text" maxlength="180" value="${escapeHtml(value)}">`;
-  }
-  return `<div class="field"><label class="label" for="${id}">${escapeHtml(label)}</label>${input}<span id="${id}-hint" class="caption">${escapeHtml(hint)}</span></div>`;
+export function inlineError(id, message, { hidden = false, announce = false } = {}) {
+  return `<p id="${id}-error" class="ontario-error-messaging"${hidden ? ' hidden' : ''}${announce ? ' role="alert"' : ''}>
+    <span class="ontario-error-messaging__content"><strong>Error</strong> ${escapeHtml(message)}</span>
+  </p>`;
 }
 
-export function editField(key, { label, placeholder, hint }, value) {
+function hintText(id, hint) {
+  return hint ? `<p class="ontario-hint" id="${id}-hint">${escapeHtml(hint)}</p>` : '';
+}
+
+function inputAccessibility(id, hint, error) {
+  const descriptions = [hint ? `${id}-hint` : '', error ? `${id}-error` : ''].filter(Boolean);
+  return `${descriptions.length ? ` aria-describedby="${descriptions.join(' ')}"` : ''}${error ? ' aria-invalid="true"' : ''}`;
+}
+
+export function field(label, key, value, hint = '', { multiline = false, number = false, error = '' } = {}) {
+  const id = `field-${key.replaceAll('.', '-')}`;
+  const common = `id="${id}" name="${id}" data-field="${key}"${inputAccessibility(id, hint, error)}`;
+  const invalidClass = error ? ' ontario-input__error' : '';
+  let input;
+  if (multiline) {
+    input = `<textarea class="ontario-textarea${invalidClass}" ${common} rows="2" maxlength="400">${escapeHtml(value)}</textarea>`;
+  } else if (number) {
+    input = `<div class="score-input"><input class="ontario-input${invalidClass}" ${common} type="number" inputmode="numeric" min="0" max="10" required value="${escapeHtml(value)}"><span aria-hidden="true">/ 10</span></div>`;
+  } else {
+    input = `<input class="ontario-input${invalidClass}" ${common} type="text" maxlength="180" value="${escapeHtml(value)}">`;
+  }
   return `<div class="field">
-    <span class="label" id="label-${key}">${escapeHtml(label)}</span>
-    <button type="button" class="field-control" data-action="edit:${key}" aria-labelledby="label-${key} value-${key}" aria-describedby="hint-${key}"><span id="value-${key}">${escapeHtml(value || placeholder)}</span></button>
-    <span id="hint-${key}" class="caption">${escapeHtml(hint)}</span>
+    <label class="ontario-label" for="${id}">${escapeHtml(label)}</label>
+    ${hintText(id, hint)}
+    ${error ? inlineError(id, error, { announce: true }) : ''}
+    ${input}
+  </div>`;
+}
+
+export function editField(key, { label, placeholder, hint, optional }, value, error = '') {
+  const id = `field-medication-${key}`;
+  return `<div class="field">
+    <span class="ontario-label" id="${id}-label">${escapeHtml(label)}${optional ? '<span class="ontario-label__flag">(optional)</span>' : ''}</span>
+    ${hintText(id, hint)}
+    ${error ? inlineError(id, error) : ''}
+    <button id="${id}" type="button" class="ontario-input field-control${error ? ' ontario-input__error' : ''}" data-action="edit:${key}" aria-labelledby="${id}-label ${id}-value"${inputAccessibility(id, hint, error)}>
+      <span id="${id}-value">${escapeHtml(value || placeholder)}</span>
+    </button>
   </div>`;
 }
 
@@ -107,7 +132,7 @@ export function splash() {
       <div class="splash-name"><h1 class="display" tabindex="-1">VisitBridge</h1>${p('Home visits and care records', 'body')}</div>
     </div>
     <footer class="actions splash-actions">
-      ${button(action('Open visits', 'launch', 'citrus'))}
+      ${button(action('Open visits', 'launch', 'secondary'))}
       <span class="home-indicator" aria-hidden="true"></span>
     </footer>
   </div>`;
