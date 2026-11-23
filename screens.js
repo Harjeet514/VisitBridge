@@ -2,6 +2,7 @@ import {
   action, avatar, badge, button, card, choice, detail, editField, escapeHtml, field,
   go, h, inlineError, intro, metricPair, note, p, patient, screen, svg,
 } from './ui.js';
+import { availableUpdates, unreadUpdates, upcomingVisits } from './visit-updates.js';
 
 const patientId = '79 years · Visit VB-2076';
 const patientAddress = '18 Maple Lane, Waterloo';
@@ -18,11 +19,6 @@ export const medicationFields = {
   time: { label: 'Given at', placeholder: 'Enter date and time', hint: 'Administration date and time', guidance: 'Enter the date and time the medication was given.', error: 'Enter the date and time given.' },
   reason: { label: 'Reason', optional: true, placeholder: 'Enter reason', hint: 'Document the reason for giving it.', guidance: 'Enter why the medication was given.' },
 };
-
-const schedule = [
-  { day: '12', time: 'Thu · 10:00–11:15 AM', name: 'Robert Hayes', purpose: 'Fracture reassessment', duration: '75 min' },
-  { day: '13', time: 'Fri · 9:30–10:15 AM', name: 'Helen Walsh', purpose: 'Dressing review', duration: '45 min' },
-];
 
 const visitStates = {
   scheduled: {
@@ -47,18 +43,20 @@ const visitStates = {
   },
 };
 
-function upcoming() {
-  const appointments = schedule.map(visit => card(
+function upcoming(state) {
+  const appointments = upcomingVisits(state).map(visit => card(
     `<div class="date-box">${p(visit.day, 'h2')}${p('NOV', 'caption')}</div>
     <div class="appointment-copy">
-      ${p(visit.time, 'caption')}${p(visit.name, 'label')}${p(visit.purpose)}${p(`Home visit · ${visit.duration}`, 'caption')}
+      ${!state.reviewedUpdates[visit.id] ? badge(visit.previous ? 'Time changed' : 'New visit', 'attention') : ''}
+      ${p(`${visit.weekday} · ${visit.time}`, 'update-date')}${p(visit.name, 'label')}${p(visit.purpose)}${p(`Home visit · ${visit.duration}`, 'caption')}
+      <button type="button" class="link-button" data-action="open-update:${visit.id}">View visit update</button>
     </div>`,
     'surface', 'schedule-item',
   ));
   return `<section class="schedule"><h2 class="h2">Upcoming visits</h2>${appointments.join('')}</section>`;
 }
 
-function visits(mode) {
+function visits(mode, state) {
   const current = visitStates[mode];
   const patientSummary = `<div class="patient-row">${avatar()}<div class="patient-name">
     ${h('Robert Hayes')}${p(current.description)}
@@ -76,8 +74,66 @@ function visits(mode) {
     : card(cardContents, 'surface', 'today-card');
   return {
     title: mode === 'scheduled' ? 'VisitBridge' : 'Visits', time: current.time, brand: true,
-    body: join(intro('Today', `Wed, 11 Nov · ${nurse}`), today, upcoming()),
+    body: join(
+      intro('Today', `Wed, 11 Nov · ${nurse}`),
+      unreadUpdates(state).length ? `<section class="visit-update-banner"><div>${p(`${unreadUpdates(state).length} visit update${unreadUpdates(state).length === 1 ? "" : "s"}`, 'label')}${p('Review new and changed visits.')}</div><button type="button" class="link-button" data-action="go:updates">Review</button></section>` : '',
+      state.hasDraft ? card(join(p('Saved visit · Robert Hayes', 'label'), p('Your unfinished entry is ready to resume.'), button(action('Resume draft', 'resume-draft', 'secondary'), 'button--compact')), 'surface', 'resume-card') : '',
+      today, upcoming(state),
+    ),
     actions: mode === 'scheduled' ? [go('Open Robert’s visit', 'visit')] : [],
+  };
+}
+
+function updatesInbox(state) {
+  const unread = unreadUpdates(state).length;
+  const cards = [...availableUpdates(state)].reverse().map(update => {
+    const reviewed = state.reviewedUpdates[update.id];
+    return card(join(
+      `<div class="update-heading">${badge(reviewed ? 'Reviewed' : 'Needs review', reviewed ? 'success' : 'attention')}${p(update.received, 'caption')}</div>`,
+      h(update.label), p(update.name, 'label'), p(`${update.date} · ${update.time}`),
+      update.previous ? p(`Previously ${update.previous}`, 'caption') : p(update.purpose, 'caption'),
+      button(action('View update', `open-update:${update.id}`, 'secondary'), 'button--compact'),
+    ), 'surface', `update-card${reviewed ? '' : ' update-card--unread'}`);
+  });
+  return {
+    title: 'Visit updates', time: '9:58', back: 'home', updates: false,
+    body: join(intro(unread ? `${unread} update${unread === 1 ? "" : "s"} to review` : 'All updates reviewed', 'New assignments and schedule changes from your care coordinator.'), ...cards),
+    actions: [go('Back to today’s visits', 'home')],
+  };
+}
+
+function updateDetails(state) {
+  const update = availableUpdates(state).find(item => item.id === state.selectedUpdate) ?? availableUpdates(state)[0];
+  const reviewed = state.reviewedUpdates[update.id];
+  return {
+    title: 'Visit update', time: '9:58', back: 'updates', updates: false,
+    body: join(
+      intro(update.label, `${update.name} · ${update.date}`),
+      card(join(
+        badge(reviewed ? 'Reviewed' : 'Needs review', reviewed ? 'success' : 'attention'),
+        `<div class="time-change">${update.previous ? `<div>${p('Previous time', 'caption')}${p(update.previous, 'body previous-time')}</div>` : ''}<div>${p(update.previous ? 'Updated time' : 'Visit time', 'caption')}${p(update.time, 'new-time')}</div></div>`,
+        divider, detail('Visit purpose', update.purpose), detail('Address', update.address), detail('Duration', update.duration),
+      )),
+      note(update.previous ? 'Reason for the change' : 'Assignment details', update.reason),
+      card(join(detail('From', 'Maya Chen · Care coordinator'), detail('Received', update.received), p('Your upcoming visits already show this time. Review the update to confirm you have seen it.'))),
+    ),
+    actions: reviewed ? [go('Back to visit updates', 'updates')] : [action('Acknowledge update', 'acknowledge-update')],
+  };
+}
+
+function recoveredDraft(state) {
+  const draftLabel = state.draftRoute === 'editor' ? medicationFields[state.editing].label : 'Visit documentation';
+  const value = state.draftRoute === 'editor' ? state.entryDrafts[state.editing] ?? state.draft : state.medication.name || 'Assessment and visit notes';
+  return {
+    title: 'Resume saved visit', time: '10:24', updates: false,
+    body: join(
+      intro('Your draft is ready', 'Continue your unfinished visit from where you left off.'),
+      patient(patientId),
+      card(join(badge('Unfinished visit', 'attention'), h(draftLabel), p(value || 'Entry started', 'body'), divider, detail('Visit', '11 Nov 2026 · Robert Hayes'), detail('Recorded by', nurse))),
+      note('Saved on this device', 'Your entered text and visit details were kept when this page closed. Review the entry before saving the care record.'),
+      p('Keeping it for later returns you to today’s visits. You can resume the draft from there.'),
+    ),
+    actions: [action('Resume draft', 'resume-draft'), action('Keep for later', 'keep-draft', 'secondary')],
   };
 }
 
@@ -454,9 +510,9 @@ function noMedication(state) {
   };
 }
 
-const plan = () => card(join(
+const plan = state => card(join(
   h('Follow-up plan'),
-  detail('Next home visit', '12 Nov · 10:00 AM', 'Recheck pain, dressing and mobility.'),
+  detail('Next home visit', `12 Nov · ${upcomingVisits(state)[0].time}`, 'Recheck pain, dressing and mobility.'),
   divider,
   detail('Orthopedic appointment', '24 Nov · 1:30 PM', 'Cedarview Hospital orthopedic clinic.'),
 ));
@@ -476,7 +532,7 @@ function reviewVisit(state, noDose) {
         detail('Medication', noDose ? `${state.noDose.outcome}. ${state.noDose.reason}` : medicationSummary(state), noDose ? '' : `Given ${med.time}`),
         detail('Response at 11:00 AM', noDose ? state.noDose.response : `${state.response.patient} ${state.response.symptoms}`),
       )),
-      plan(), p(`Signing as ${nurse}`, 'caption'),
+      plan(state), p(`Signing as ${nurse}`, 'caption'),
     ),
     actions: [action('Sign and complete visit', noDose ? 'sign-no-med' : 'sign-with-med')],
   };
@@ -495,7 +551,7 @@ function completedVisit(state, noDose) {
         h('Fracture follow-up'), p('Pain and dressing assessed. Patient response recorded.'),
         detail('Medication record', noDose ? `${state.noDose.outcome} · ${state.noDose.reason}` : medicationSummary(state), noDose ? '' : `Given ${med.time}`),
       )),
-      plan(),
+      plan(state),
     ),
     actions: [go('Return to today’s visits', 'visits-completed')],
   };
@@ -614,7 +670,10 @@ function rescheduled() {
 }
 
 export const screens = {
-  home: () => visits('scheduled'),
+  home: state => visits(state.visitStatus, state),
+  updates: updatesInbox,
+  'update-details': updateDetails,
+  'recover-draft': recoveredDraft,
   visit: visitDetails,
   arrival,
   identity,
@@ -643,13 +702,20 @@ export const screens = {
   away: patientAway,
   reschedule,
   rescheduled,
-  'visits-completed': () => visits('completed'),
-  'visits-followup': () => visits('followup'),
-  'visits-rescheduled': () => visits('rescheduled'),
+  'visits-completed': state => visits('completed', state),
+  'visits-followup': state => visits('followup', state),
+  'visits-rescheduled': state => visits('rescheduled', state),
   xray: () => imageViewer('followup'),
   'injury-xray': () => imageViewer('injury'),
 };
 
-export function renderScreen(route, state) {
-  return screen(screens[route](state));
+const draftScreens = new Set(['assessment', 'medication', 'editor', 'response', 'no-medication', 'no-answer', 'away', 'recover-draft']);
+
+export function renderScreen(route, state, feedback) {
+  return screen({
+    ...screens[route](state),
+    saveFeedback: draftScreens.has(route) ? feedback : null,
+    unread: unreadUpdates(state).length,
+    toast: feedback.toast,
+  });
 }

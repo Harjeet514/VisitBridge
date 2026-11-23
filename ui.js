@@ -108,13 +108,29 @@ export function statusBar(time, dark = false) {
   return `<div class="status-bar" aria-hidden="true"><span>${escapeHtml(time)}</span>${svg(dark ? 'status-dark' : 'status', 'status-symbols')}</div>`;
 }
 
-export function screen({ title, time, back, brand = false, body, actions = [], fullWidth = false }) {
+export function draftStatus({ kind, savedAt }) {
+  const failed = kind === 'error';
+  let message = kind === 'saving' ? 'Saving draft…' : 'Draft saved on this device';
+  if (kind === 'ready') message = 'Changes save on this device';
+  if (failed) message = 'Draft not saved. Keep this page open.';
+  const timestamp = savedAt ? new Date(savedAt).toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Toronto' }) : '';
+  return `<div id="draft-status" class="draft-status${failed ? ' draft-status--error' : ''}" role="status" aria-live="polite" aria-atomic="true">
+    <div><strong>${escapeHtml(message)}</strong>${kind === 'saved' && timestamp ? `<span>Last saved ${escapeHtml(timestamp)}</span>` : ''}</div>
+    ${failed ? '<button type="button" class="link-button" data-action="retry-save">Retry saving</button>' : ''}
+  </div>`;
+}
+
+export function screen({ title, time, back, brand = false, body, actions = [], fullWidth = false, saveFeedback, unread = 0, toast = '', updates = true }) {
   const leading = brand
     ? `<span class="brandmark brandmark--small">${svg('brand')}</span>`
     : back ? `<button class="back" type="button" aria-label="Back" data-action="go:${escapeHtml(back)}">${svg('back')}</button>` : '';
   return `<div class="screen">
     ${statusBar(time)}
-    <header class="app-header">${leading}<h1 class="h2" tabindex="-1">${escapeHtml(title)}</h1></header>
+    <header class="app-header">${leading}<h1 class="h2" tabindex="-1">${escapeHtml(title)}</h1>
+      ${updates ? `<button class="updates-button" type="button" data-action="go:updates" aria-label="Visit updates${unread ? `, ${unread} unread` : ''}">${svg('bell')}${unread ? `<span class="unread-count" aria-hidden="true">${unread}</span>` : ''}</button>` : ''}
+    </header>
+    ${saveFeedback ? draftStatus(saveFeedback) : ''}
+    ${toast ? `<div class="visit-toast" role="status">${escapeHtml(toast)} <button type="button" class="link-button" data-action="go:updates">Review updates</button></div>` : ''}
     <div class="screen-scroll"><div class="screen-content${fullWidth ? ' screen-content--full' : ''}">${body}</div></div>
     <footer class="actions${actions.length ? '' : ' actions--empty'}">
       ${actions.map(item => button(item)).join('')}

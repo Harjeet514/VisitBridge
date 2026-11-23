@@ -17,9 +17,13 @@ The app uses native HTML, CSS, and JavaScript modules. It runs without a build s
 - Open Robert’s visit, confirm he is home, and review the fracture record or the X-ray reports.
 - Save a visit assessment, record a medication with the on-screen keyboard or the signed order shortcut, and review and sign the visit.
 - Choose **Patient unavailable** to log a missed visit and request coordinator follow-up, or confirm that Robert is away and reschedule.
+- Type an entry, leave the field or close the tab, then reopen the prototype. Choose **Resume draft** to continue with the saved text. The save strip confirms when the draft has been written to this device, and provides a retry action if saving fails.
+- Open the bell to review a changed visit time or a new visit assignment. Acknowledge each update to clear its unread status. **Preview schedule update**, beneath the phone, delivers another example change and updates the upcoming schedule.
 - Use **Restart demo** to start a fresh visit and try another path.
 
-The patient, visit, and care data are fictional. Edits stay in the current browser session.
+The patient, visit, and care data are fictional. Visit records and unfinished drafts are stored in IndexedDB in the same browser on this device. Restart demo replaces the saved example visit. Clearing browser data also removes these records. Concurrent saves merge field changes inside a database transaction.
+
+Schedule updates are interactive examples delivered within the prototype. They demonstrate an unread inbox, changed times, new assignments, and acknowledgment. A live scheduling service and operating-system push notifications would require a connected backend.
 
 ## Ontario Design System
 
@@ -34,6 +38,8 @@ VisitBridge uses Ontario’s colour palette and typography, with published butto
 - `ui.js` renders the shared controls and screen shell.
 - `screens.js` defines the screens and sample visit data.
 - `app.js` connects navigation, form editing, and the visit state.
+- `draft-store.js` persists and recovers visit records and drafts on the device.
+- `visit-updates.js` supplies the sample assignments and schedule changes.
 
 ## Design and asset credits
 
