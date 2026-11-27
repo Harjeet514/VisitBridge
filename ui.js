@@ -92,15 +92,26 @@ export function field(label, key, value, hint = '', { multiline = false, number 
   </div>`;
 }
 
-export function editField(key, { label, placeholder, hint, optional }, value, error = '') {
-  const id = `field-medication-${key}`;
+export function editField(key, { label, placeholder, hint, optional, command, id: controlId }, value, error = '') {
+  const id = controlId || `field-medication-${key}`;
   return `<div class="field">
     <span class="ontario-label" id="${id}-label">${escapeHtml(label)}${optional ? '<span class="ontario-label__flag">(optional)</span>' : ''}</span>
     ${hintText(id, hint)}
     ${error ? inlineError(id, error) : ''}
-    <button id="${id}" type="button" class="ontario-input field-control${error ? ' ontario-input__error' : ''}" data-action="edit:${key}" aria-labelledby="${id}-label ${id}-value"${inputAccessibility(id, hint, error)}>
+    <button id="${id}" type="button" class="ontario-input field-control${error ? ' ontario-input__error' : ''}" data-action="${escapeHtml(command || `edit:${key}`)}" aria-labelledby="${id}-label ${id}-value"${inputAccessibility(id, hint, error)}>
       <span id="${id}-value">${escapeHtml(value || placeholder)}</span>
     </button>
+  </div>`;
+}
+
+export function temporalField(label, key, value, type, error = '') {
+  const id = `field-${key.replaceAll('.', '-')}`;
+  const hint = type === 'date' ? 'Day, month and year' : '12-hour time · AM or PM';
+  return `<div class="field">
+    <label class="ontario-label" for="${id}">${escapeHtml(label)}</label>
+    ${hintText(id, hint)}
+    ${error ? inlineError(id, error, { announce: true }) : ''}
+    <input id="${id}" name="${id}" class="ontario-input${error ? ' ontario-input__error' : ''}" data-field="${key}" type="${type}" value="${escapeHtml(value)}" required step="${type === 'time' ? '60' : '1'}"${inputAccessibility(id, hint, error)}>
   </div>`;
 }
 

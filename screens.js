@@ -1,8 +1,9 @@
 import {
   action, avatar, badge, button, card, choice, detail, editField, escapeHtml, field,
-  go, h, inlineError, intro, metricPair, note, p, patient, screen, svg,
+  go, h, inlineError, intro, metricPair, note, p, patient, screen, svg, temporalField,
 } from './ui.js';
 import { availableUpdates, unreadUpdates, upcomingVisits } from './visit-updates.js';
+import { displayClock, formatClock, formatDate, painLabel, visitTiming } from './care-record.js';
 
 const patientId = '79 years · Visit VB-2076';
 const patientAddress = '18 Maple Lane, Waterloo';
@@ -16,7 +17,8 @@ export const medicationFields = {
   name: { label: 'Medication name', placeholder: 'Enter medication name', hint: 'Tap to type or change the name.', guidance: 'Enter the name as written on the medication order.', error: 'Enter the medication name.' },
   dose: { label: 'Dose given', placeholder: 'Enter dose', hint: 'Amount and unit', guidance: 'Enter the amount actually given and its unit, such as mg or mL.', error: 'Enter the dose given.' },
   route: { label: 'Route', placeholder: 'Enter route', hint: 'How it was given', guidance: 'Enter how the medication was given.', error: 'Enter how the medication was given.' },
-  time: { label: 'Given at', placeholder: 'Enter date and time', hint: 'Administration date and time', guidance: 'Enter the date and time the medication was given.', error: 'Enter the date and time given.' },
+  date: { label: 'Date given', placeholder: 'Select date', hint: 'Day, month, year', command: 'open-time', error: 'Select a valid administration date.' },
+  clock: { label: 'Time given', placeholder: 'Select time', hint: '12-hour time', command: 'open-time', error: 'Select a valid administration time.' },
   reason: { label: 'Reason', optional: true, placeholder: 'Enter reason', hint: 'Document the reason for giving it.', guidance: 'Enter why the medication was given.' },
 };
 
@@ -37,7 +39,7 @@ const visitStates = {
     title: 'Contact log', details: 'Side door at 10:02 AM · Phone at 10:05 AM',
   },
   rescheduled: {
-    label: 'Rescheduled', tone: 'success', time: '10:09', route: 'rescheduled', window: '2:30–3:45 PM',
+    label: 'Rescheduled', tone: 'success', time: '10:09', route: 'visit', window: '2:30–3:45 PM',
     description: 'Robert confirmed the revised time by phone', meta: 'Morning visit closed · Patient away',
     title: 'Arrival instructions', details: `Use the side door at ${patientAddress}.`,
   },
@@ -57,7 +59,14 @@ function upcoming(state) {
 }
 
 function visits(mode, state) {
-  const current = visitStates[mode];
+  const timing = visitTiming(state);
+  const current = { ...visitStates[mode] };
+  if (mode === 'completed') {
+    current.description = `Right leg fracture follow-up · Signed at ${timing.complete}`;
+    current.time = displayClock(timing.complete);
+    current.window = timing.window;
+  }
+  const openCommand = mode === 'rescheduled' ? 'open-rescheduled' : nav(current.route);
   const patientSummary = `<div class="patient-row">${avatar()}<div class="patient-name">
     ${h('Robert Hayes')}${p(current.description)}
   </div>${current.route ? svg('chevron', 'chevron') : ''}</div>`;
@@ -70,7 +79,7 @@ function visits(mode, state) {
     `<div class="detail">${p(current.title, 'label')}${p(current.details)}</div>`,
   );
   const today = current.route
-    ? `<a class="card card--surface today-card" href="#${current.route}" data-action="${nav(current.route)}">${cardContents}</a>`
+    ? `<a class="card card--surface today-card" href="#${current.route}" data-action="${openCommand}">${cardContents}</a>`
     : card(cardContents, 'surface', 'today-card');
   return {
     title: mode === 'scheduled' ? 'VisitBridge' : 'Visits', time: current.time, brand: true,
@@ -80,7 +89,7 @@ function visits(mode, state) {
       state.hasDraft ? card(join(p('Saved visit · Robert Hayes', 'label'), p('Your unfinished entry is ready to resume.'), button(action('Resume draft', 'resume-draft', 'secondary'), 'button--compact')), 'surface', 'resume-card') : '',
       today, upcoming(state),
     ),
-    actions: mode === 'scheduled' ? [go('Open Robert’s visit', 'visit')] : [],
+    actions: mode === 'scheduled' ? [go('Open Robert’s visit', 'visit')] : mode === 'rescheduled' ? [action('Open rescheduled visit', 'open-rescheduled')] : [],
   };
 }
 
@@ -122,8 +131,8 @@ function updateDetails(state) {
 }
 
 function recoveredDraft(state) {
-  const draftLabel = state.draftRoute === 'editor' ? medicationFields[state.editing].label : 'Visit documentation';
-  const value = state.draftRoute === 'editor' ? state.entryDrafts[state.editing] ?? state.draft : state.medication.name || 'Assessment and visit notes';
+  const draftLabel = state.draftRoute === 'medication-time' ? 'Administration date and time' : state.draftRoute === 'pain-score' ? 'Pain at rest after care' : state.draftRoute === 'editor' ? medicationFields[state.editing].label : 'Visit documentation';
+  const value = state.draftRoute === 'medication-time' ? [formatDate(state.timeDraft.date), formatClock(state.timeDraft.clock)].filter(Boolean).join(' · ') || 'Date and time entry started' : state.draftRoute === 'pain-score' ? painLabel(state.painDraft) : state.draftRoute === 'editor' ? state.entryDrafts[state.editing] ?? state.draft : state.medication.name || 'Assessment and visit notes';
   return {
     title: 'Resume saved visit', time: '10:24', updates: false,
     body: join(
@@ -207,11 +216,12 @@ function imageViewer(type) {
 }
 
 function visitDetails(state) {
-  const revised = state.visitStatus === 'rescheduled';
+  const timing = visitTiming(state);
+  const revised = state.visitContext === 'rescheduled';
   return {
-    title: 'Visit details', time: '9:58', back: 'home',
+    title: 'Visit details', time: timing.detailsClock, back: 'home',
     body: join(
-      patient('79 years · Scheduled home visit', `Visit VB-2076 · ${revised ? '2:30–3:45 PM' : '10:00–11:15 AM'}`),
+      patient(`79 years · ${revised ? 'Rescheduled' : 'Scheduled'} home visit`, `Visit VB-2076 · ${timing.window}`),
       card(join(h('Home address'), p(`${patientAddress}, ON`, 'body'), p('Entrance at the side door'))),
       card(join(
         h('Fracture follow-up'),
@@ -230,15 +240,16 @@ function visitDetails(state) {
   };
 }
 
-function arrival() {
+function arrival(state) {
+  const timing = visitTiming(state);
   return {
-    title: 'Arrival', time: '10:02', back: 'visit',
+    title: 'Arrival', time: displayClock(timing.arrival), back: 'visit',
     body: join(
       intro('Is Robert home?', `Wed, 11 Nov · ${nurse}`),
       patient(patientId),
       card(join(h('Arrival details'),
         detail('Home entrance', `Side door · ${patientAddress}`),
-        detail('Visit window', '10:00–11:15 AM · Arrived at 10:02 AM'),
+        detail('Visit window', `${timing.window} · Arrived at ${timing.arrival}`),
       ), 'soft'),
       choice('Patient is home', 'Robert is available in person. Confirm his identity and consent to begin care.', nav('identity'), { tone: 'soft', icon: 'home' }),
       choice('Patient unavailable', 'Log the contact attempt or reschedule if Robert confirms he is away.', nav('unavailable'), { tone: 'warning', icon: 'phone' }),
@@ -246,9 +257,10 @@ function arrival() {
   };
 }
 
-function identity() {
+function identity(state) {
+  const timing = visitTiming(state);
   return {
-    title: 'Confirm patient', time: '10:04', back: 'arrival',
+    title: 'Confirm patient', time: displayClock(timing.identity), back: 'arrival',
     body: join(
       intro('Verify the patient', 'Ask Robert to state his name and date of birth. Confirm he agrees to today’s visit.'),
       patient(patientId),
@@ -261,11 +273,12 @@ function identity() {
   };
 }
 
-function fractureChart() {
+function fractureChart(state) {
+  const timing = visitTiming(state);
   return {
-    title: 'Fracture care', time: '10:04', back: 'identity',
+    title: 'Fracture care', time: displayClock(timing.identity), back: 'identity',
     body: join(
-      patient(patientId, 'Identity and consent confirmed · 10:04 AM'),
+      patient(patientId, `Identity and consent confirmed · ${timing.identity}`),
       card(join(
         h('Right tibial plateau fracture', 'h2'),
         p('Break at the top of the shinbone, near the knee. Surgically repaired on 30 Oct.'),
@@ -354,11 +367,12 @@ function medicationOrder() {
 }
 
 function assessment(state) {
+  const timing = visitTiming(state);
   const entry = state.assessment;
   return {
-    title: 'Visit assessment', time: '10:12', back: 'chart',
+    title: 'Visit assessment', time: displayClock(timing.assessment), back: 'chart',
     body: join(
-      patient('Right tibial plateau fracture', 'Assessment time · 11 Nov, 10:12 AM'),
+      patient('Right tibial plateau fracture', `Assessment time · 11 Nov, ${timing.assessment}`),
       note('Previous visit · 10 Nov', 'Pain 4/10 at rest. Mild knee swelling. Dressing dry and intact.'),
       field('Pain at rest', 'assessment.pain', entry.pain, 'Reported by Robert', { number: true, error: state.assessmentError ? 'Enter a pain score from 0 to 10.' : '' }),
       field('Right knee swelling', 'assessment.swelling', entry.swelling, 'Observed today'),
@@ -370,13 +384,14 @@ function assessment(state) {
 }
 
 function assessmentSaved(state) {
+  const timing = visitTiming(state);
   const entry = state.assessment;
   const observation = entry.swelling === 'Similar to last visit'
     ? 'Right knee swelling looks similar to the previous visit.' : `Right knee swelling · ${entry.swelling}`;
   return {
-    title: 'Assessment saved', time: '10:16', back: 'assessment',
+    title: 'Assessment saved', time: displayClock(timing.assessmentSaved), back: 'assessment',
     body: join(
-      intro('Pain and dressing', `11 Nov · Saved by ${nurse} at 10:16 AM`),
+      intro('Pain and dressing', `11 Nov · Saved by ${nurse} at ${timing.assessmentSaved}`),
       metricPair(['4/10', '10 Nov · Previous visit'], [`${entry.pain}/10`, '11 Nov · Today at rest']),
       note(entry.dressing === 'Dry and intact' ? 'Dressing dry and intact' : `Dressing · ${entry.dressing}`, observation),
       card(join(p('Acetaminophen 500 mg by mouth', 'label'),
@@ -384,31 +399,66 @@ function assessmentSaved(state) {
         p('Last recorded dose · 500 mg at 4:00 AM today', 'caption'),
       ), 'soft'),
       p('Check the signed order and recent doses before giving medication.'),
-      note('Reassessment during this visit', '11:00 AM · Record pain at rest, any new symptoms and the condition of the dressing.'),
+      note('Reassessment during this visit', `${timing.response} · Record pain at rest, any new symptoms and the condition of the dressing.`),
     ),
     actions: [go('Record medication given', 'medication'), go('Continue without a dose', 'no-medication', 'secondary')],
   };
 }
 
 function recordMedication(state) {
+  const timing = visitTiming(state);
   const errors = state.medicationErrors;
-  const value = key => editField(key, medicationFields[key], state.medication[key], errors.includes(key) ? medicationFields[key].error : '');
+  const value = key => editField(key, medicationFields[key], key === 'date' ? formatDate(state.medication.date) : key === 'clock' ? formatClock(state.medication.clock) : state.medication[key], errors.includes(key) ? medicationFields[key].error : '');
   const errorSummary = errors.length ? `<section id="medication-error-summary" class="form-error-summary" role="alert" tabindex="-1" aria-labelledby="medication-error-title">
     <h2 id="medication-error-title" class="h3">Check the medication details</h2>
     <ul>${errors.map(key => `<li><a href="#field-medication-${key}" data-action="focus-field:${key}">${escapeHtml(medicationFields[key].error)}</a></li>`).join('')}</ul>
   </section>` : '';
   return {
-    title: 'Record medication', time: '10:24', back: 'assessment-saved',
+    title: 'Record medication', time: timing.editorClock, back: 'assessment-saved',
     body: join(
       intro('Robert Hayes', `Visit VB-2076 · ${nurse}`),
       errorSummary,
       card(join(value('name'), button(action('Use Acetaminophen order', 'use-order', 'secondary'), 'button--compact'))),
       `<section class="form-fields">${h('Administration details')}
         <div class="two-columns">${value('dose')}${value('route')}</div>
-        ${value('time')}${value('reason')}
+        <div class="two-columns">${value('date')}${value('clock')}</div>${value('reason')}
       </section>`,
     ),
     actions: [action('Review medication entry', 'review-medication')],
+  };
+}
+
+function medicationTime(state) {
+  const timing = visitTiming(state);
+  return {
+    title: 'Administration time', time: timing.editorClock, back: 'medication',
+    body: join(
+      intro('When was it given?', 'Record when Robert received the medication.'),
+      state.timeDraft.legacyText ? note('Previous time entry', state.timeDraft.legacyText) : '',
+      temporalField('Date given', 'timeDraft.date', state.timeDraft.date, 'date', state.timeErrors.includes('date') ? 'Select a valid administration date.' : ''),
+      temporalField('Time given', 'timeDraft.clock', state.timeDraft.clock, 'time', state.timeErrors.includes('clock') ? 'Select a valid administration time.' : ''),
+      button(action('Clear date and time', 'clear-time', 'secondary'), 'button--compact'),
+      p('Robert Hayes · Visit VB-2076', 'caption'),
+    ),
+    actions: [action('Use date and time', 'use-time')],
+  };
+}
+
+function painScore(state) {
+  const timing = visitTiming(state);
+  const options = Array.from({ length: 11 }, (_,score) => `<label class="pain-option"><input type="radio" name="pain-score" value="${score}" aria-label="${score} out of 10"${state.painDraft === String(score) ? ' checked' : ''}><span aria-hidden="true">${score}</span></label>`).join('');
+  return {
+    title: 'Reassess pain', time: displayClock(timing.response), back: 'response',
+    body: join(
+      intro('Pain at rest', 'Ask Robert to choose the score that describes his pain now.'),
+      card(join(p('Pain at rest after care', 'label'), `<output id="pain-draft-value" class="metric-value" aria-live="polite">${escapeHtml(painLabel(state.painDraft))}</output>`)),
+      `<fieldset class="pain-fieldset"${state.painError ? ' aria-describedby="pain-score-error"' : ''}><legend class="ontario-label">Choose a score from 0 to 10</legend><div class="pain-options">${options}</div></fieldset>`,
+      state.painError ? inlineError('pain-score', 'Choose a pain score from 0 to 10.', { announce: true }) : '',
+      p('0 · No pain       10 · Worst pain', 'caption'),
+      button(action('Clear selection', 'clear-pain', 'secondary'), 'button--compact'),
+      p('The selected score is used in the response card and visit review.'),
+    ),
+    actions: [action('Use pain score', 'use-pain')],
   };
 }
 
@@ -421,9 +471,10 @@ function keyboard() {
 }
 
 function editor(state) {
+  const timing = visitTiming(state);
   const config = medicationFields[state.editing] || medicationFields.name;
   return {
-    title: 'Edit entry', time: '10:24', back: 'medication',
+    title: 'Edit entry', time: timing.editorClock, back: 'medication',
     body: join(
       intro(config.label, config.guidance),
       card(join(
@@ -439,9 +490,10 @@ function editor(state) {
 }
 
 function medicationReview(state) {
+  const timing = visitTiming(state);
   const med = state.medication;
   return {
-    title: 'Review medication', time: '10:25', back: 'medication',
+    title: 'Review medication', time: timing.medicationReviewClock, back: 'medication',
     body: join(
       patient(patientId),
       card(join(
@@ -455,9 +507,10 @@ function medicationReview(state) {
 }
 
 function recordedMedication(state) {
+  const timing = visitTiming(state);
   const med = state.savedMedication || state.medication;
   return {
-    title: 'Medication saved', time: '10:26',
+    title: 'Medication saved', time: timing.medicationSavedClock,
     body: join(
       card(join(badge('Saved', 'success'), h(med.name, 'h2'), p('Robert Hayes · Home visit VB-2076')), 'soft'),
       card(join(
@@ -466,8 +519,8 @@ function recordedMedication(state) {
         detail('Given at', med.time), detail('Recorded by', nurse),
       )),
       card(join(h('Follow-up assessment'),
-        detail('Before medication', `Pain ${state.assessment.pain}/10 at rest`, '10:12 AM · Patient reported'),
-        detail('Next check', '11:00 AM', 'Record how Robert feels and any observed reaction.'),
+        detail('Before medication', `Pain ${state.assessment.pain}/10 at rest`, `${timing.assessment} · Patient reported`),
+        detail('Next check', timing.response, 'Record how Robert feels and any observed reaction.'),
       )),
     ),
     actions: [go('Record patient response', 'response')],
@@ -480,31 +533,34 @@ const medicationSummary = state => {
 };
 
 function response(state) {
+  const timing = visitTiming(state);
   const entry = state.response;
   return {
-    title: 'Response to care', time: '11:00', back: 'medication-saved',
+    title: 'Response to care', time: displayClock(timing.response), back: 'medication-saved',
     body: join(
-      intro('Pain reassessment', '11 Nov 2026 · 11:00 AM'),
+      intro('Pain reassessment', `11 Nov 2026 · ${timing.response}`),
       note('Medication recorded', medicationSummary(state)),
-      metricPair([`${state.assessment.pain}/10`, 'Before dose · 10:12 AM'], ['3/10', 'After dose · 11:00 AM']),
-      field('Patient response', 'response.patient', entry.patient, 'Reported by Robert'),
-      field('Other symptoms', 'response.symptoms', entry.symptoms, '11:00 AM'),
+      metricPair([`${state.assessment.pain}/10`, `Before dose · ${timing.assessment}`], [painLabel(entry.pain), `After dose · ${timing.response}`]),
+      editField('pain', { id: 'field-response-pain', label: 'Pain at rest after care', hint: 'Select a score from 0 to 10', placeholder: 'Choose a score', command: 'open-pain' }, painLabel(entry.pain), state.responseError ? 'Choose a pain score from 0 to 10.' : ''),
+      field('Patient comments (optional)', 'response.patient', entry.patient, 'Use the patient’s own words.'),
+      field('Other symptoms', 'response.symptoms', entry.symptoms, timing.response),
       field('Care check', 'response.care', entry.care, `Observed by ${nurse}`),
     ),
-    actions: [go('Save response and review visit', 'review')],
+    actions: [action('Save response and review visit', 'save-response')],
   };
 }
 
 function noMedication(state) {
+  const timing = visitTiming(state);
   const entry = state.noDose;
   return {
-    title: 'No medication given', time: '11:00', back: 'assessment-saved',
+    title: 'No medication given', time: displayClock(timing.response), back: 'assessment-saved',
     body: join(
       intro('Record the outcome', 'Robert Hayes · Acetaminophen order RX-2141'),
-      field('Medication outcome', 'noDose.outcome', entry.outcome, 'Recorded at 10:22 AM'),
+      field('Medication outcome', 'noDose.outcome', entry.outcome, `Recorded at ${timing.medication}`),
       field('Reason', 'noDose.reason', entry.reason, 'Patient declined'),
       field('Care provided', 'noDose.care', entry.care, `Observed by ${nurse}`),
-      field('Response at 11:00 AM', 'noDose.response', entry.response, 'Reported by Robert', { multiline: true }),
+      field(`Response at ${timing.response}`, 'noDose.response', entry.response, 'Reported by Robert', { multiline: true }),
     ),
     actions: [go('Save outcome and review visit', 'review-no-med')],
   };
@@ -518,19 +574,20 @@ const plan = state => card(join(
 ));
 
 function reviewVisit(state, noDose) {
+  const timing = visitTiming(state);
   const med = state.savedMedication || state.medication;
   const assessment = state.assessment;
   const swelling = assessment.swelling === 'Similar to last visit' ? 'Knee swelling similar to the previous visit.' : `Knee swelling · ${assessment.swelling}.`;
   return {
-    title: 'Review visit', time: '11:05', back: noDose ? 'no-medication' : 'response',
+    title: 'Review visit', time: displayClock(timing.review), back: noDose ? 'no-medication' : 'response',
     body: join(
       patient('Right leg fracture · VB-2076'),
       card(join(
         h('Visit summary'),
-        detail('Arrival and consent', 'Arrived 10:02 AM. Identity and consent confirmed at 10:04 AM.'),
-        detail('Fracture assessment', `Pain ${assessment.pain}/10 at rest. ${swelling} Dressing ${assessment.dressing.toLowerCase()}.`, `11 Nov, 10:12 AM · ${nurse}`),
+        detail('Arrival and consent', `Arrived ${timing.arrival}. Identity and consent confirmed at ${timing.identity}.`),
+        detail('Fracture assessment', `Pain ${assessment.pain}/10 at rest. ${swelling} Dressing ${assessment.dressing.toLowerCase()}.`, `11 Nov, ${timing.assessment} · ${nurse}`),
         detail('Medication', noDose ? `${state.noDose.outcome}. ${state.noDose.reason}` : medicationSummary(state), noDose ? '' : `Given ${med.time}`),
-        detail('Response at 11:00 AM', noDose ? state.noDose.response : `${state.response.patient} ${state.response.symptoms}`),
+        detail(`Response at ${timing.response}`, noDose ? state.noDose.response : `Pain ${painLabel(state.response.pain)} at rest. ${state.response.patient} ${state.response.symptoms}`),
       )),
       plan(state), p(`Signing as ${nurse}`, 'caption'),
     ),
@@ -539,13 +596,14 @@ function reviewVisit(state, noDose) {
 }
 
 function completedVisit(state, noDose) {
+  const timing = visitTiming(state);
   const med = state.savedMedication || state.medication;
   return {
-    title: 'Visit complete', time: '11:08',
+    title: 'Visit complete', time: displayClock(timing.complete),
     body: join(
       card(join(
         badge('Signed', 'success'), h('Robert’s visit is complete', 'h1'),
-        p('11 Nov 2026 · 11:08 AM'), p(`${nurse} · Visit VB-2076`),
+        p(`11 Nov 2026 · ${timing.complete}`), p(`${nurse} · Visit VB-2076`),
       ), 'soft'),
       card(join(
         h('Fracture follow-up'), p('Pain and dressing assessed. Patient response recorded.'),
@@ -558,14 +616,15 @@ function completedVisit(state, noDose) {
 }
 
 function unavailable(state) {
+  const timing = visitTiming(state);
   return {
-    title: 'Patient unavailable', time: '10:03', back: 'arrival',
+    title: 'Patient unavailable', time: displayClock(timing.arrival), back: 'arrival',
     body: join(
-      intro('Record the contact result', 'Arrived at 10:02 AM · Robert Hayes'),
+      intro('Record the contact result', `Arrived at ${timing.arrival} · Robert Hayes`),
       card(join(
         h('Attempted home visit'),
         detail('Location', `${patientAddress} · Side door`),
-        detail('Appointment', '10:00–11:15 AM · VB-2076'),
+        detail('Appointment', `${timing.window} · VB-2076`),
       ), 'soft'),
       card(join(
         choice('Call Robert Hayes', '(519) 555-0142 · Number on file', 'call', { icon: 'phone' }),
@@ -573,19 +632,20 @@ function unavailable(state) {
       )),
       choice('No answer at the door or by phone', 'Log your attempts and request follow-up.', nav('no-answer'), { icon: 'phone' }),
       choice('Robert confirms he is away', 'Record the call and arrange a new visit time.', nav('away'), { icon: 'home' }),
-      note('Visit status', state.callLogged ? 'Phone attempt recorded at 10:05 AM · Select the outcome.' : 'Arrival recorded · Contact outcome pending'),
+      note('Visit status', state.callLogged ? `Phone attempt recorded at ${timing.contact} · Select the outcome.` : 'Arrival recorded · Contact outcome pending'),
     ),
   };
 }
 
 function noAnswer(state) {
+  const timing = visitTiming(state);
   return {
-    title: 'Record no answer', time: '10:07', back: 'unavailable',
+    title: 'Record no answer', time: displayClock(timing.noAnswer), back: 'unavailable',
     body: join(
       intro('Unable to contact Robert', '11 Nov 2026 · Visit VB-2076'),
       card(join(
-        detail('10:02 AM · At the home', 'No answer at the side door'),
-        detail('10:05 AM · Phone call', 'No answer at the number on file'),
+        detail(`${timing.arrival} · At the home`, 'No answer at the side door'),
+        detail(`${timing.contact} · Phone call`, 'No answer at the number on file'),
       )),
       field('Visit note', 'contact.note', state.contact.note, nurse, { multiline: true }),
       note('Visit outcome', 'Care was not delivered. Record this visit for coordinator follow-up.', 'warning'),
@@ -595,17 +655,18 @@ function noAnswer(state) {
   };
 }
 
-function assignedFollowUp() {
+function assignedFollowUp(state) {
+  const timing = visitTiming(state);
   return {
-    title: 'Follow-up assigned', time: '10:08',
+    title: 'Follow-up assigned', time: displayClock(timing.followUp),
     body: join(
-      card(join(h('Follow-up assigned', 'h1'), p('Robert Hayes · Visit VB-2076'), p('Request sent at 10:08 AM')), 'soft'),
+      card(join(h('Follow-up assigned', 'h1'), p('Robert Hayes · Visit VB-2076'), p(`Request sent at ${timing.followUp}`)), 'soft'),
       card(join(
         detail('Assigned to', 'Maya Chen · Care coordinator'),
-        detail('Review by', '10:30 AM', 'Confirm Robert’s availability and arrange the next visit.'),
+        detail('Review by', timing.reviewBy, 'Confirm Robert’s availability and arrange the next visit.'),
         detail('Current status', 'Awaiting coordinator response'),
       )),
-      card(join(p('Saved contact attempts', 'label'), p('10:02 AM · Side door · No answer'), p('10:05 AM · Phone call · No answer'))),
+      card(join(p('Saved contact attempts', 'label'), p(`${timing.arrival} · Side door · No answer`), p(`${timing.contact} · Phone call · No answer`))),
       note('Visit recorded as unable to contact', 'No care or medication was given during this visit.'),
     ),
     actions: [go('Return to today’s visits', 'visits-followup')],
@@ -613,10 +674,11 @@ function assignedFollowUp() {
 }
 
 function patientAway(state) {
+  const timing = visitTiming(state);
   return {
-    title: 'Patient confirmed away', time: '10:07', back: 'unavailable',
+    title: 'Patient confirmed away', time: displayClock(timing.noAnswer), back: 'unavailable',
     body: join(
-      intro('Robert is away', 'Phone contact confirmed · 10:05 AM'),
+      intro('Robert is away', `Phone contact confirmed · ${timing.contact}`),
       patient(patientId),
       field('Contact outcome', 'contact.outcome', state.contact.outcome, 'Confirmed by Robert Hayes'),
       field('Availability', 'contact.availability', state.contact.availability, 'Reported by Robert', { multiline: true }),
@@ -665,7 +727,7 @@ function rescheduled() {
         detail('Care record', 'Revised appointment linked to visit VB-2076.'),
       ), 'soft'),
     ),
-    actions: [go('Return to today’s visits', 'visits-rescheduled')],
+    actions: [action('Open rescheduled visit', 'open-rescheduled'), go('Return to today’s visits', 'visits-rescheduled', 'secondary')],
   };
 }
 
@@ -687,6 +749,8 @@ export const screens = {
   assessment,
   'assessment-saved': assessmentSaved,
   medication: recordMedication,
+  'medication-time': medicationTime,
+  'pain-score': painScore,
   editor,
   'medication-review': medicationReview,
   'medication-saved': recordedMedication,
@@ -709,7 +773,7 @@ export const screens = {
   'injury-xray': () => imageViewer('injury'),
 };
 
-const draftScreens = new Set(['assessment', 'medication', 'editor', 'response', 'no-medication', 'no-answer', 'away', 'recover-draft']);
+const draftScreens = new Set(['assessment', 'medication', 'medication-time', 'pain-score', 'editor', 'response', 'no-medication', 'no-answer', 'away', 'recover-draft']);
 
 export function renderScreen(route, state, feedback) {
   return screen({

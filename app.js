@@ -2,19 +2,22 @@ import { medicationFields, renderScreen, screens } from './screens.js';
 import { draftStatus, splash } from './ui.js';
 import { mergeChanges, openDraftStore } from './draft-store.js';
 import { availableUpdates } from './visit-updates.js';
+import { medicationErrors as getMedicationErrors, medicationTimestamp, painLabel, migrateResponse, normalizeMedication, parseLegacyTime, validClock, validDate, validPain, visitTiming } from './care-record.js';
 
 const app = document.querySelector('#app');
 const legacyStorageKey = 'visitbridge-demo-v1';
-const requiredMedicationFields = Object.keys(medicationFields).filter(key => medicationFields[key].error);
 const homeRoutes = { completed: 'visits-completed', followup: 'visits-followup', rescheduled: 'visits-rescheduled' };
 const resumableRoutes = new Set([
   'assessment', 'assessment-saved', 'medication', 'editor', 'medication-review',
-  'medication-saved', 'response', 'review', 'no-medication', 'review-no-med', 'no-answer', 'away',
+  'medication-saved', 'medication-time', 'pain-score', 'response', 'review', 'no-medication', 'review-no-med', 'no-answer', 'away',
 ]);
 
 function initialState() {
   return {
     visitStatus: 'scheduled',
+    visitContext: 'morning',
+    rescheduledStarted: false,
+    previousAttempt: { outcome: '', note: '', window: '' },
     assessment: {
       pain: '6',
       swelling: 'Similar to last visit',
@@ -22,13 +25,20 @@ function initialState() {
       note: 'More pain after this morning’s transfer. No new fall reported.',
     },
     medication: {
-      name: '', dose: '', route: '', time: '11 Nov 2026 · 10:22 AM', reason: 'Right leg pain · 6/10 at rest',
+      name: '', dose: '', route: '', date: '2026-11-11', clock: '10:22', time: '11 Nov 2026 · 10:22 AM', reason: 'Right leg pain · 6/10 at rest',
     },
     medicationErrors: [],
     assessmentError: false,
+    responseError: false,
+    timeDraft: { date: '2026-11-11', clock: '10:22', legacyText: '' },
+    hasTimeDraft: false,
+    timeErrors: [],
+    painDraft: '5',
+    painError: false,
     savedMedication: null,
     response: {
-      patient: 'Robert reports pain 3/10 at rest.',
+      pain: '5',
+      patient: 'Discomfort during transfers.',
       symptoms: 'No new symptoms reported.',
       care: 'Dressing remains dry and intact.',
     },
@@ -63,7 +73,7 @@ function restoreState(saved) {
     const value = saved[key];
     if (typeof value === typeof fallback && value !== null) result[key] = value;
   }
-  for (const key of ['assessment', 'medication', 'response', 'noDose', 'contact', 'reviewedUpdates']) {
+  for (const key of ['assessment', 'medication', 'response', 'noDose', 'contact', 'reviewedUpdates', 'timeDraft', 'previousAttempt']) {
     result[key] = { ...defaults[key] };
     for (const [field, fallback] of Object.entries(defaults[key])) {
       if (typeof saved[key]?.[field] === typeof fallback) result[key][field] = saved[key][field];
@@ -75,7 +85,23 @@ function restoreState(saved) {
   result.medicationErrors = Array.isArray(saved.medicationErrors)
     ? saved.medicationErrors.filter(key => Object.hasOwn(medicationFields, key)) : [];
   result.savedMedication = saved.savedMedication && typeof saved.savedMedication === 'object'
-    ? { ...defaults.medication, ...saved.savedMedication } : null;
+    ? { ...defaults.medication, ...normalizeMedication(saved.savedMedication) } : null;
+  if (saved.medication) {
+    const restored = Object.hasOwn(saved.medication, 'date') || Object.hasOwn(saved.medication, 'clock')
+      ? saved.medication : { ...saved.medication, ...parseLegacyTime(saved.medication.time) };
+    result.medication = normalizeMedication({ ...result.medication, ...restored });
+  }
+  if (saved.response) result.response = { ...defaults.response, ...migrateResponse(saved.response) };
+  if (result.savedMedication) result.savedMedication = normalizeMedication(result.savedMedication);
+  if (saved.editing === 'time' && saved.draftRoute === 'editor') {
+    const original = saved.entryDrafts?.time ?? saved.draft ?? saved.medication?.time ?? '';
+    result.timeDraft = { ...parseLegacyTime(original), legacyText: original };
+    result.hasTimeDraft = true;
+    result.draftRoute = 'medication-time';
+  }
+  result.timeErrors = Array.isArray(saved.timeErrors) ? saved.timeErrors.filter(key => ['date', 'clock'].includes(key)) : [];
+  if (!saved.visitContext && saved.visitStatus === 'rescheduled') result.visitContext = 'rescheduled';
+  if (!['morning', 'rescheduled'].includes(result.visitContext)) result.visitContext = 'morning';
   if (!Object.hasOwn(medicationFields, result.editing)) result.editing = 'name';
   if (!Object.hasOwn(screens, result.draftRoute)) result.draftRoute = 'assessment';
   if (!Object.hasOwn(homeRoutes, result.visitStatus) && result.visitStatus !== 'scheduled') result.visitStatus = 'scheduled';
@@ -226,6 +252,7 @@ function launch() {
 }
 
 function edit(key) {
+  if (['date', 'clock', 'time'].includes(key)) { openMedicationTime(); return; }
   if (!Object.hasOwn(medicationFields, key)) return;
   state.editing = key;
   state.draft = state.entryDrafts[key] ?? state.medication[key];
@@ -287,15 +314,16 @@ function applyDraft() {
 }
 
 function clearResolvedMedicationErrors() {
-  state.medicationErrors = state.medicationErrors.filter(key => !state.medication[key].trim());
+  state.medicationErrors = state.medicationErrors.filter(key => getMedicationErrors(state.medication).includes(key));
 }
 
 function reviewMedication() {
-  state.medicationErrors = requiredMedicationFields.filter(key => !state.medication[key].trim());
+  state.medicationErrors = getMedicationErrors(state.medication);
   if (state.medicationErrors.length) {
     saveState();
-    render();
-    document.querySelector('#medication-error-summary').focus();
+    if (current !== 'medication') navigate('medication');
+    else render();
+    document.querySelector('#medication-error-summary')?.focus();
     return;
   }
   navigate('medication-review');
@@ -319,7 +347,94 @@ function saveAssessment() {
   navigate('assessment-saved');
 }
 
+function openMedicationTime() {
+  if (!state.hasTimeDraft) state.timeDraft = { date: state.medication.date, clock: state.medication.clock, legacyText: '' };
+  state.timeErrors = [];
+  navigate('medication-time');
+}
+
+function applyMedicationTime() {
+  state.timeErrors = [
+    ...(!validDate(state.timeDraft.date) ? ['date'] : []),
+    ...(!validClock(state.timeDraft.clock) ? ['clock'] : []),
+  ];
+  if (state.timeErrors.length) {
+    saveState();
+    render({ preserveScroll: true });
+    document.querySelector(`#field-timeDraft-${state.timeErrors[0]}`)?.focus();
+    return;
+  }
+  Object.assign(state.medication, {
+    date: state.timeDraft.date, clock: state.timeDraft.clock,
+    time: medicationTimestamp(state.timeDraft.date, state.timeDraft.clock),
+  });
+  state.hasTimeDraft = false;
+  state.timeDraft.legacyText = '';
+  markDraft();
+  clearResolvedMedicationErrors();
+  navigate('medication');
+}
+
+function openPainScore() {
+  state.painDraft = state.response.pain;
+  state.painError = false;
+  navigate('pain-score');
+}
+
+function applyPainScore() {
+  if (!validPain(state.painDraft)) {
+    state.painError = true;
+    saveState();
+    render({ preserveScroll: true });
+    app.querySelector('input[name="pain-score"]')?.focus();
+    return;
+  }
+  state.response.pain = state.painDraft;
+  state.painError = false;
+  state.responseError = false;
+  markDraft();
+  navigate('response');
+}
+
+function saveResponse() {
+  if (!validPain(state.response.pain)) {
+    state.responseError = true;
+    saveState();
+    render({ preserveScroll: true });
+    document.querySelector('#field-response-pain')?.focus();
+    return;
+  }
+  state.responseError = false;
+  navigate('review');
+}
+
+function openRescheduledVisit() {
+  if (!state.rescheduledStarted) {
+    const fresh = initialState();
+    for (const key of ['assessment', 'medication', 'response', 'noDose', 'timeDraft']) state[key] = fresh[key];
+    Object.assign(state, {
+      savedMedication: null, medicationErrors: [], assessmentError: false, responseError: false,
+      hasTimeDraft: false, timeErrors: [], painError: false, painDraft: '', entryDrafts: {}, draft: '',
+      hasDraft: false, draftRoute: 'assessment', rescheduledStarted: true,
+    });
+    state.response.pain = '';
+    state.response.patient = '';
+    state.visitContext = 'rescheduled';
+    const timing = visitTiming(state);
+    state.medication.clock = timing.medicationClock;
+    state.medication.time = medicationTimestamp(state.medication.date, state.medication.clock);
+    state.timeDraft = { date: state.medication.date, clock: state.medication.clock, legacyText: '' };
+  }
+  state.visitContext = 'rescheduled';
+  navigate('visit');
+}
+
 function signVisit(noDose) {
+  if (!noDose && (!validPain(state.response.pain) || getMedicationErrors(state.savedMedication || state.medication).length)) {
+    if (getMedicationErrors(state.savedMedication || state.medication).length) reviewMedication();
+    else { navigate('response'); saveResponse(); }
+    return;
+  }
   state.visitStatus = 'completed';
   state.hasDraft = false;
   state.entryDrafts = {};
@@ -333,6 +448,21 @@ const commands = {
   'retry-save': () => saveState(),
   'acknowledge-update': acknowledgeUpdate,
   'save-assessment': saveAssessment,
+  'open-time': openMedicationTime,
+  'use-time': applyMedicationTime,
+  'clear-time': () => {
+    state.timeDraft = { date: '', clock: '', legacyText: '' };
+    state.hasTimeDraft = true;
+    state.timeErrors = [];
+    markDraft();
+    saveState();
+    render({ preserveScroll: true });
+  },
+  'open-pain': openPainScore,
+  'use-pain': applyPainScore,
+  'clear-pain': () => { state.painDraft = ''; state.painError = false; markDraft(); saveState(); render({ preserveScroll: true }); },
+  'save-response': saveResponse,
+  'open-rescheduled': openRescheduledVisit,
   'use-order': () => {
     Object.assign(state.medication, { name: 'Acetaminophen', dose: '500 mg', route: 'By mouth (oral)' });
     for (const key of ['name', 'dose', 'route']) delete state.entryDrafts[key];
@@ -351,6 +481,8 @@ const commands = {
   'use-entry': applyDraft,
   'review-medication': reviewMedication,
   'save-medication': () => {
+    if (getMedicationErrors(state.medication).length) { reviewMedication(); return; }
+    state.medication.time = medicationTimestamp(state.medication.date, state.medication.clock);
     state.savedMedication = { ...state.medication };
     navigate('medication-saved');
   },
@@ -368,6 +500,7 @@ const commands = {
     navigate('follow-up');
   },
   'confirm-reschedule': () => {
+    state.previousAttempt = { outcome: 'Patient confirmed away · Care not delivered', note: state.contact.availability, window: visitTiming(state).window };
     state.visitStatus = 'rescheduled';
     state.hasDraft = false;
     navigate('rescheduled');
@@ -395,6 +528,17 @@ app.addEventListener('click', event => {
 
 app.addEventListener('input', event => {
   const { target } = event;
+  if (target.name === 'pain-score') {
+    state.painDraft = target.value;
+    state.painError = false;
+    const value = document.querySelector('#pain-draft-value');
+    if (value) value.textContent = painLabel(state.painDraft);
+    app.querySelector('#pain-score-error')?.remove();
+    target.closest('fieldset')?.removeAttribute('aria-describedby');
+    markDraft();
+    saveState();
+    return;
+  }
   if (target.id === 'entry-draft') {
     setDraft(target.value);
     return;
@@ -402,6 +546,13 @@ app.addEventListener('input', event => {
   if (!target.dataset.field) return;
   const [section, key] = target.dataset.field.split('.');
   state[section][key] = target.value;
+  if (section === 'timeDraft') {
+    state.hasTimeDraft = true;
+    if ((key === 'date' ? validDate : validClock)(target.value)) {
+      state.timeErrors = state.timeErrors.filter(error => error !== key);
+      showInlineError(target, false);
+    }
+  }
   markDraft();
   if (section === 'assessment' && key === 'pain' && state.assessmentError && target.validity.valid) {
     state.assessmentError = false;
